@@ -169,10 +169,16 @@ def get_images(campaign_id: int):
     security:
       - JWT: []
     produces:
-      - image/jpeg
+      - application/json
     responses:
       200:
-        description: "success"
+        description: "success, list of assets"
+        id: assets
+        type: array
+        description: "identifier for image asset"
+          example: [1234, 5678]
+          items:
+            type: integer
       400:
         description: "missing required arguments"
       500:
@@ -184,14 +190,149 @@ def get_images(campaign_id: int):
         bl = pm.get_photogame_assets(session, campaign_id)
         if len(bl) == 0:
             return make_response("no images for campaign {0}".format(campaign_id), status.HTTP_204_NO_CONTENT)
-
         session.commit()
+        assets = []
+        for b in bl:
+            assets.append(b._asset_id)
+
+        rsp = make_response(jsonify(assets), status.HTTP_200_OK)
+        rsp.headers['Content-Type'] = 'application/json'
+        return rsp
+
     except Exception as e:
         session.rollback()
     finally:
         session.close()
 
     return make_response("not implemented", status.HTTP_501_NOT_IMPLEMENTED)
+
+@app.route('/asset/<int:asset_id>', methods=['GET'])
+@cross_origin(origins='*')
+@timeit()
+def download_asset(asset_id):
+    """
+    View Asset
+    download an asset (photo).
+    ---
+    tags:
+      - image
+    operationId: view-image
+    consumes:
+      - text/html
+    produces:
+      - image/jpeg
+    parameters:
+      - in: path
+        name: asset_id
+        description: "The id of the asset to be downloaded"
+        required: true
+        type: integer
+    responses:
+      200:
+        description: "image found"
+      404:
+        description: "image not found"
+        schema:
+          $ref: '#/definitions/Error'
+    """
+    session = dbsetup.Session()
+    rsp = None
+    try:
+        pm = photomgr.PhotoGameMgr()
+        image_binary = pm.read_asset(session, asset_id)
+        rsp = make_response(image_binary, status.HTTP_200_OK)
+        rsp.headers['Content-Type'] = 'image/jpeg'
+    except Exception as e:
+        logger.exception(msg="[/preview] error reading thumbnail!")
+    finally:
+        session.close()
+        if rsp is None:
+            rsp = make_response('image not found', status.HTTP_404_NOT_FOUND)
+
+    return rsp
+
+
+@app.route("/vote", methods=['POST'])
+@timeit()
+def campaign_vote():
+    """
+    Campaign Vote
+    Return the user's results
+    ---
+    tags:
+      - voting
+    operationId: campaign-vote
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        schema:
+          id: vote_args
+          required:
+            - votes
+          properties:
+            votes:
+              type: array
+              items:
+                $ref: '#/definitions/ballotentry'
+    security:
+      - JWT: []
+    responses:
+      200:
+        description: vote has been tallied
+      400:
+        description: "missing required arguments"
+        schema:
+          $ref: '#/definitions/Error'
+      500:
+        description: "something seriously went wrong"
+        schema:
+           $ref: '#/definitions/Error'
+    definitions:
+      - schema:
+        id: Error
+          properties:
+            msg:
+              type: string
+              description: "error message"
+      - schema:
+        id: ballotentry
+          properties:
+            asset_id:
+              type: integer
+              description: "asset that was voted on"
+            rank:
+              type: integer
+              description: "how user ranked images"
+    """
+    if not request.is_json:
+        return make_response(jsonify({'msg': 'no json input arguments'}), status.HTTP_400_BAD_REQUEST)
+
+    votes = request.json['votes']  # list of dict() with the actual votes
+    if votes is None:
+        return make_response(jsonify({'msg': 'missing arguments'}), status.HTTP_400_BAD_REQUEST)
+
+    rsp = None
+    session = dbsetup.Session()
+    try:
+        pm = photomgr.PhotoGameMgr()
+        pm.tally_results(session, votes)
+        session.commit()
+        rsp = make_response("success", status.HTTP_200_OK)
+    except Exception as e:
+        if e.orig.args[0] == 1452:
+            rsp = make_response("invalid campaign or client", status.HTTP_400_BAD_REQUEST)
+        session.rollback()
+    finally:
+        session.close()
+
+    if rsp is not None:
+        return rsp
+
+    return make_response(jsonify({'msg': 'not implemented'}), status.HTTP_501_NOT_IMPLEMENTED)
 
 
 if __name__ == '__main__':
