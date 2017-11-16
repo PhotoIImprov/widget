@@ -192,6 +192,10 @@ class GameUser(dbsetup.Base):
     created_date = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False)
     last_updated = Column(DateTime, nullable=True, server_default=text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP') )
 
+    def __init__(self, **kwargs):
+        self.client_id = kwargs.get('client_id', None)
+        self.client_user_id = kwargs.get('client_user_id', None)
+        self.ii_userid = kwargs.get('ii_user_id', str(uuid.uuid1()))
 
 class PhotoGameResult(dbsetup.Base):
 
@@ -212,5 +216,5 @@ class PhotoGameResult(dbsetup.Base):
         self.asset_id = kwargs.get('asset_id', None)
         self.group_guid = kwargs.get('group_guid', None)
         self.rank = kwargs.get('rank', None)
-
+        self.user_id = kwargs.get('user_id', None)
 # ======================================================================================================

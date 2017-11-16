@@ -3,7 +3,6 @@ from random import randint, shuffle
 import os
 import uuid
 
-
 class PhotoImageAsset():
     _binary_image = None
     _extension = None
@@ -32,10 +31,59 @@ class PhotoGameMgr():
         if len(kwargs) == 0:
             return
 
-    def tally_results(self, session, votes):
+    def find_ii_user(self, session, user_id: str) -> int:
+        try:
+            q = session.query(photogame.GameUser).filter(photogame.GameUser.ii_userid == user_id)
+            gu = q.one_or_none()
+            if gu is not None:
+                return gu.id
+
+        except Exception as e:
+            raise
+
+    def find_client_and_campaign_from_asset(self, session, asset_id: int) -> (int, int):
+        try:
+            q = session.query(photogame.Campaign).\
+                join(photogame.PhotoGameAsset, photogame.PhotoGameAsset.campaign_id == photogame.Campaign.id).\
+                filter(photogame.PhotoGameAsset.id == asset_id)
+            c = q.one_or_none()
+            return c.client_id, c.id
+        except Exception as e:
+            raise
+
+    def find_client_user(self, session, user_id: str, ii_user_id: str, asset_id: int) -> int:
+        try:
+            q = session.query(photogame.GameUser).filter(photogame.GameUser.client_userid == user_id)
+            gu = q.one_or_none()
+            if gu is not None:
+                return gu.id
+
+            # if we have a client user_id and it's not in our DB, we need
+            # to create a record for it
+            client_id, campaign_id = self.find_client_and_campaign_from_asset(session, asset_id)
+
+            # now we can create a user
+            gu = photogame.GameUser(client_id=client_id, client_user_id=user_id, ii_user_id=ii_user_id)
+            session.add(gu)
+            session.commit()
+            return gu.id
+
+        except Exception as e:
+            raise
+
+    def tally_results(self, session, client_user_id: str, ii_user_id: str, votes: list):
         grp_guid = str(uuid.uuid1()).upper().translate({ord(c): None for c in '-'})
+
+        # lookup the user_id provided and get the FK
+        gu_id = None
+        asset_id = votes[0]['asset_id']
+        if client_user_id is not None:
+            gu_id = self.find_client_user(session, client_user_id, ii_user_id, asset_id)
+        else:
+            gu_id = self.find_ii_user(session, ii_user_id)
+
         for vote in votes:
-            pgr = photogame.PhotoGameResult(group_guid=grp_guid, asset_id=vote['asset_id'], rank=vote['rank'])
+            pgr = photogame.PhotoGameResult(group_guid=grp_guid, asset_id=vote['asset_id'], rank=vote['rank'], user_id=gu_id)
             session.add(pgr)
         session.commit()
         return
@@ -68,7 +116,7 @@ class PhotoGameMgr():
         except Exception as e:
             raise
 
-    def get_photogame_assets(self, session, campaign_id: int) -> list:
+    def get_photogame_assets(self, session, campaign_id: int, ii_user_id: str) -> list:
 
         pl = []
         o_campaign = photogame.Campaign.find_campaign(session, campaign_id)
@@ -88,3 +136,11 @@ class PhotoGameMgr():
             pl.append(pi)
 
         return pl
+
+    def user_id_from_cookie(self, session, cookies: dict) -> str:
+        # read the ii_user_id from the cookie (if present)
+        ii_user_id = cookies.get('user_id', None)
+        if ii_user_id is None:
+            ii_user_id = str(uuid.uuid1())
+
+        return ii_user_id

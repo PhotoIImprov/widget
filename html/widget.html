@@ -1,0 +1,127 @@
+<!doctype html>
+<!--[if lt IE 7]>      <html class="no-js lt-ie9 lt-ie8 lt-ie7" lang=""> <![endif]-->
+<!--[if IE 7]>         <html class="no-js lt-ie9 lt-ie8" lang=""> <![endif]-->
+<!--[if IE 8]>         <html class="no-js lt-ie9" lang=""> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang=""> <!--<![endif]-->
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+        <title>Image Widget</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="../js/vendor/modernizr-2.8.3-respond-1.4.2.min.js"></script>
+    </head>
+    <body>
+        <script language="javascript">
+            window.onload = get_images;
+            var _urlbase = "http://localhost:8081/";
+            var _campaign_id = 1234;
+
+            function post_result_callback(){
+                if (_req.status != 200) {
+                    // handle request failure...
+                    alert("Error - http status = " + _req.status.toString());
+                    return;
+                }
+                if (_req.status == 200) {
+                    // we have JSON to parse...
+                    r_json = JSON.parse(_req.responseText);
+                }
+            }
+
+            }
+            function post_selection(asset_id) {
+                // Okay the asset id passed in is the first
+                // selected
+                var target = _urlbase + "vote/";
+                _req = createRequest();
+
+                // Create the callback
+                _req.onreadystatechange = post_result_callback;
+                _req.setRequestHeader("Content-Type", "application/json");
+                _req.open("POST", target, true);
+                try {
+                    _req.send(null);
+                }
+                catch(err){
+                    alert("error! " + err.message);
+                }
+            }
+
+            function populate_table(asset_list) {
+                // Given a list of photos, let's populate our table
+                var tbl = document.getElementById("photos");
+                tbl.style.backgroundColor = "silver";
+                tbl.innerHTML = "";
+                var tblBody = document.createElement("tbody");
+                var row = document.createElement("tr");
+                for (var idx = 0; idx < asset_list.length; idx++) {
+                    var cell = document.createElement("td");
+                    var img = document.createElement("img");
+                    var img_url = _urlbase + "asset/" + asset_list[idx];
+                    img.src = img_url;
+                    img.width = 120;
+                    img.height = 120;
+                    img.title = 'TBD';
+                    img.onclick = post_selection(asset_list[idx]);
+                    cell.appendChild(img);
+                    row.appendChild(cell);
+                }
+
+                tblBody.appendChild(row);
+                tbl.appendChild(tblBody);
+            }
+
+            var _req = null;
+            function get_image_callback() {
+                if (_req.status != 200) {
+                    // handle request failure...
+                    alert("Error - http status = " + _req.status.toString());
+                    return;
+                }
+                if (_req.status == 200) {
+                    // we have JSON to parse...
+                    asset_list = JSON.parse(_req.responseText);
+                    populate_table(asset_list);
+                }
+            }
+
+            function get_images() {
+                var target = _urlbase + "photogame/" + _campaign_id;
+                _req = createRequest();
+
+                // Create the callback
+                _req.onreadystatechange = get_image_callback;
+                _req.setRequestHeader("Content-Type", "application/json");
+                _req.open("GET", target, true);
+                try {
+                    _req.send(null);
+                }
+                catch(err){
+                    alert("error! " + err.message);
+                }
+            }
+
+            function createRequest(){
+                var result = null;
+                if (window.XMLHttpRequest){
+                    // FireFox, Safari, etc.
+                    result = new XMLHttpRequest();
+                    if (typeof result.overrideMimeType != 'undefined'){
+                        result.overrideMimeType('application/json');
+                    }
+                }
+                else if (window.ActiveXObject) {
+                    // MSIE
+                    result = new ActiveXObject("Microsoft.XMLHTTP");
+                }
+                else {
+                    // No known mechanism, not supported
+                }
+                return result;
+            }
+        </script>
+
+        <div id="ballot"><table id="photos"></table></div>
+    </body>
+</html>

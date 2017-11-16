@@ -3,10 +3,7 @@ from flask import request, redirect, make_response, current_app
 from flask_jwt import JWT, jwt_required, current_identity
 import jwt
 from flask_api import status
-from flask import send_from_directory
 from flask_swagger import swagger
-from sqlalchemy import text
-from sqlalchemy.orm import Session
 from flask_cors import CORS, cross_origin
 from logsetup import logger, client_logger, timeit
 import os
@@ -14,12 +11,15 @@ import datetime
 import dbsetup
 import initschema
 from controllers import photomgr
+# from flask import send_from_directory
+# from sqlalchemy import text
+# from sqlalchemy.orm import Session
 
 app = Flask(__name__)
 app.debug = True
 app.config['SECRET_KEY'] = 'iiwebwidget3177e39'
 
-__version__ = '0.0.1' #our version string PEP 440
+__version__ = '0.0.3' #our version string PEP 440
 
 
 def fix_jwt_decode_handler(token):
@@ -166,28 +166,39 @@ def get_images(campaign_id: int):
         description: "specifies campaign for client"
         required: true
         type: integer
-    security:
-      - JWT: []
     produces:
       - application/json
     responses:
       200:
         description: "success, list of assets"
-        id: assets
-        type: array
-        description: "identifier for image asset"
-          example: [1234, 5678]
-          items:
-            type: integer
+        schema:
+          $ref: '#/definitions/assets'
       400:
         description: "missing required arguments"
       500:
         description: "error retrieving images, something serious"
+    definitions:
+      - schema:
+          id: Error
+          properties:
+            msg:
+              type: string
+              description: "error message"
+      - schema:
+          id: assets
+          properties:
+            asset_ids:
+              type: array
+              description: "list of asset ids"
+              items:
+                type: integer
+              example: [1234, 5678]
     """
     pm = photomgr.PhotoGameMgr()
     session = dbsetup.Session()
     try:
-        bl = pm.get_photogame_assets(session, campaign_id)
+        ii_user_id = pm.user_id_from_cookie(session, request.cookies)
+        bl = pm.get_photogame_assets(session, campaign_id, ii_user_id)
         if len(bl) == 0:
             return make_response("no images for campaign {0}".format(campaign_id), status.HTTP_204_NO_CONTENT)
         session.commit()
@@ -197,6 +208,7 @@ def get_images(campaign_id: int):
 
         rsp = make_response(jsonify(assets), status.HTTP_200_OK)
         rsp.headers['Content-Type'] = 'application/json'
+        rsp.set_cookie('user_id', ii_user_id)
         return rsp
 
     except Exception as e:
@@ -268,21 +280,22 @@ def campaign_vote():
       - application/json
     parameters:
       - in: body
-        name: body
+        name: vote
         schema:
           id: vote_args
-          required:
-            - votes
           properties:
+            user_id:
+              type: string
+              description: "client provided user identifier (optional)"
             votes:
               type: array
               items:
-                $ref: '#/definitions/ballotentry'
-    security:
-      - JWT: []
+                $ref: '#/definitions/ballot_entry'
     responses:
       200:
         description: vote has been tallied
+        schema:
+          $ref: '#/definitions/Error'
       400:
         description: "missing required arguments"
         schema:
@@ -293,13 +306,7 @@ def campaign_vote():
            $ref: '#/definitions/Error'
     definitions:
       - schema:
-        id: Error
-          properties:
-            msg:
-              type: string
-              description: "error message"
-      - schema:
-        id: ballotentry
+          id: ballot_entry
           properties:
             asset_id:
               type: integer
@@ -311,7 +318,8 @@ def campaign_vote():
     if not request.is_json:
         return make_response(jsonify({'msg': 'no json input arguments'}), status.HTTP_400_BAD_REQUEST)
 
-    votes = request.json['votes']  # list of dict() with the actual votes
+    votes = request.json.get('votes', None)  # list of dict() with the actual votes
+    client_user_id = request.json.get('user_id', None)
     if votes is None:
         return make_response(jsonify({'msg': 'missing arguments'}), status.HTTP_400_BAD_REQUEST)
 
@@ -319,9 +327,11 @@ def campaign_vote():
     session = dbsetup.Session()
     try:
         pm = photomgr.PhotoGameMgr()
-        pm.tally_results(session, votes)
+        ii_user_id = pm.user_id_from_cookie(session, request.cookies)
+        pm.tally_results(session, client_user_id, ii_user_id, votes)
         session.commit()
         rsp = make_response("success", status.HTTP_200_OK)
+        rsp.set_cookie('user_id', ii_user_id)
     except Exception as e:
         if e.orig.args[0] == 1452:
             rsp = make_response("invalid campaign or client", status.HTTP_400_BAD_REQUEST)
