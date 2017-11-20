@@ -160,3 +160,10 @@ class TestPhotoGameAPI(unittest.TestCase):
         for pgr in pgr_list:
             assert(pgr.asset_id == data[0] or pgr.asset_id == data[1])
             assert(pgr.user_id is not None)
+
+    def initialize_ii_assets(self):
+        # This will initialize the assets for the default
+        # Image Improv client/campaign
+        self.setUp()
+        campaign_id = 1
+        self.create_campaign_assets(self.session, campaign_id)
